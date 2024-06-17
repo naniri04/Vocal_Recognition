@@ -1,0 +1,16 @@
+content.js
+신호 보내기:
+// Send current time to popup.js every second
+// setInterval(() => {
+//     chrome.runtime.sendMessage({action: "updateTime", time: getCurrentTime()});
+// }, 100);
+
+popup.js
+신호 받기:
+// Listen for messages from content script to update time in real-time
+// chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+//   if (request.action === "updateTime") {
+//     const timeDiv = document.getElementById('time');
+//     timeDiv.textContent = request.time;
+//   }
+// });
