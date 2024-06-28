@@ -51,6 +51,8 @@ def scrap(song_title, song_composer):
     yt_link = f'https://www.youtube.com/watch?v={yt_link_pt}'
 
     rom, jap = driver.execute_script(script)
+    for i in range(len(rom)):
+        rom[i] = rom[i].replace('sy', 'sh')
 
     # print(driver.current_url)
     driver.quit()
