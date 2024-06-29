@@ -5,12 +5,13 @@ similarity_matrix -> find_opt
 from __future__ import annotations
 import numpy as np
 import matplotlib.pyplot as plt
+import heapq
 
 VOWEL = {'a', 'i', 'e', 'o', 'u', 'y'}
 EXC_CSN = {'ch', 'sh', 'ts'}
 SIMILAR_CSN = [
     {'b', 'f', 'p', 'v'},
-    {'c', 'g', 'k'},
+    {'c', 'g', 'k', 'q'},
     {'d', 't'},
     {'l'},
     {'m', 'n'},
@@ -24,9 +25,12 @@ SIMILAR_CSN = [
 csn_sep = {}
 for idx, ks in enumerate(SIMILAR_CSN):
     for k in ks: csn_sep[k] = idx
+for si in [str(i) for i in range(10)]:
+    csn_sep[si] = si
 
 
 def division(s:str):
+    if s.isnumeric(): return s, s
     for i in range(len(s)):
         if s[i] in VOWEL:
             return s[:i], s[i:]
@@ -57,9 +61,9 @@ class Syllable:
 def seperation(sentence:str) -> list[Syllable]:
     sentence = sentence.replace(' ', '')
     sl = []; prev = [0]; flag = 0
-    def ap(idx):
-        sl.append(Syllable(sentence[prev[0]:idx]))
-        prev[0] = idx
+    def ap(i):
+        sl.append(Syllable(sentence[prev[0]:i]))
+        prev[0] = i
     def ex_check(ch, idx):
         return (ch == 't' and sentence[idx] == 's') or \
         (ch == 'c' and sentence[idx] == 'h') or (ch == 's' and sentence[idx] == 'h')
@@ -71,7 +75,12 @@ def seperation(sentence:str) -> list[Syllable]:
         elif flag == 2:
             flag = 0; continue
         #
-        if ch in VOWEL:
+        if ch.isnumeric(): ap(idx)
+        elif ch == "ー":
+            prev[0] -= 1
+            ap(idx-1)
+            prev[0] = idx
+        elif ch in VOWEL:
             if ch == 'y': flag = 1
             else: ap(idx)
         else:
@@ -108,75 +117,51 @@ def similarity_matrix(original:str, generated:str) -> np.ndarray:
     return score_mat
 
 
-def mat_heatmap(mat, points=None):
+def mat_heatmap(mat, points=0):
     plt.imshow(mat, cmap='hot', interpolation='nearest')
     plt.colorbar()
     plt.title('Heatmap')
     plt.xticks(np.arange(0, mat.shape[1], 4))
     plt.yticks(np.arange(0, mat.shape[0], 4))
-    c, r = zip(points)
-    if points: plt.scatter(r, c, s=20/min(len(c), len(r)))
+    c, r = zip(*points) if points else ([], [])
+    if points: plt.scatter(r, c, s=1)
     plt.show()
     
     
-# AI generated DP algo
-def find_opt(sim_mat):
-    if not sim_mat.size:
-        return 0, []
-
+def find_opt(sim_mat) -> tuple[float, list]:
     n, m = sim_mat.shape
     print(n, 'x', m)
 
-    max_sum = float('-inf')
-    max_path = []
-
-    def find_max_path(dp, path, start_i, start_j):
-        for i in range(start_i, n):
-            for j in range(start_j, m):
-                # 오른쪽으로 이동
-                if j + 1 < m:
-                    if dp[i, j] + sim_mat[i, j + 1] - 0.3 > dp[i, j + 1]:
-                        dp[i, j + 1] = dp[i, j] + sim_mat[i, j + 1] - 0.3
-                        path[i][j + 1] = path[i][j] + [(i, j + 1)]
-                # 아래로 이동
-                if i + 1 < n:
-                    if dp[i, j] + sim_mat[i + 1, j] - 0.3 > dp[i + 1, j]:
-                        dp[i + 1, j] = dp[i, j] + sim_mat[i + 1, j] - 0.3
-                        path[i + 1][j] = path[i][j] + [(i + 1, j)]
-                # 대각선 아래 오른쪽으로 이동
-                if i + 1 < n and j + 1 < m:
-                    if dp[i, j] + sim_mat[i + 1, j + 1] > dp[i + 1, j + 1]:
-                        dp[i + 1, j + 1] = dp[i, j] + sim_mat[i + 1, j + 1]
-                        path[i + 1][j + 1] = path[i][j] + [(i + 1, j + 1)]
-        return dp, path
-
-    # 행이 0인 모든 점을 시작점으로 설정
-    for j in range(m):
-        dp = np.full((n, m), -np.inf)
-        path = [[[] for _ in range(m)] for _ in range(n)]
-        dp[0, j] = sim_mat[0, j]
-        path[0][j] = [(0, j)]
-        dp, path = find_max_path(dp, path, 0, j)
-
-        # 경계 조건에서 최대 경로 합과 경로를 갱신
-        for i in range(n):
-            if dp[i, m - 1] > max_sum:
-                max_sum = dp[i, m - 1]
-                max_path = path[i][m - 1]
-
-    # 열이 0인 모든 점을 시작점으로 설정
+    dp = np.ones((n, m)); visited = np.zeros((n, m))
+    path = [[[]]*m for _ in range(n)]; q = []
     for i in range(n):
-        dp = np.full((n, m), -np.inf)
-        path = [[[] for _ in range(m)] for _ in range(n)]
-        dp[i, 0] = sim_mat[i, 0]
-        path[i][0] = [(i, 0)]
-        dp, path = find_max_path(dp, path, i, 0)
-
-        # 경계 조건에서 최대 경로 합과 경로를 갱신
-        for j in range(m):
-            if dp[n - 1, j] > max_sum:
-                max_sum = dp[n - 1, j]
-                max_path = path[n - 1][j]
+        q.append((-sim_mat[i,0], i, 0, []))
+        dp[i,0] = -sim_mat[i,0]
+    for i in range(1, m):
+        q.append((-sim_mat[0,i], 0, i, []))
+        dp[0,i] = -sim_mat[0,i]
+    heapq.heapify(q)
+    
+    PENALTY = 1
+    while q:
+        acc, r, c, p = heapq.heappop(q)
+        if not visited[r, c]:
+            visited[r, c] = 1
+            path[r][c] = p+[(r, c)]
+        else: continue
+        
+        for tr, tc, pen in [(r+1,c+1,0), (r,c+1,PENALTY), (r+1,c,PENALTY)]:
+            if tr >= n or tc >= m: continue
+            val = acc - sim_mat[tr, tc] + pen
+            if dp[tr, tc] > val:
+                heapq.heappush(q, (val, tr, tc, path[r][c]))
+                dp[tr, tc] = val
+            
+    dp *= -1
+    print(dp)
+    mc = np.argmax(dp[-1])
+    max_sum = dp[-1][mc]
+    max_path = path[-1][mc]
 
     print("Maximum path sum:", max_sum)
     print("Accuracy: ", max_sum / min(*sim_mat.shape))
