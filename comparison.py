@@ -108,63 +108,85 @@ def similarity_matrix(original:str, generated:str) -> np.ndarray:
     org_csn_mat, org_vwl_mat = matgen(org, gen, True), matgen(org, gen, False)
     gen_csn_mat, gen_vwl_mat = matgen(gen, org, True).T, matgen(gen, org, False).T
 
-    csn_eq = (org_csn_mat == gen_csn_mat).astype(int) * 0.5
+    csn_eq = (org_csn_mat == gen_csn_mat).astype(int) * 0.33
     csn_sim = (csn_get(org_csn_mat) == csn_get(gen_csn_mat)).astype(int) * 0.25
-    vwl_eq = (org_vwl_mat == gen_vwl_mat).astype(int) * 0.5
+    vwl_eq = (org_vwl_mat == gen_vwl_mat).astype(int) * 0.33
     vwl_sim = (np.vectorize(first_eq)(org_vwl_mat, gen_vwl_mat)).astype(int) * 0.25
     score_mat = np.maximum(csn_eq, csn_sim) + np.maximum(vwl_eq, vwl_sim)
+    score_mat[score_mat == 0.66] = 1
     
     return score_mat
 
 
-def mat_heatmap(mat, points=0):
-    plt.imshow(mat, cmap='hot', interpolation='nearest')
-    plt.colorbar()
-    plt.title('Heatmap')
-    plt.xticks(np.arange(0, mat.shape[1], 4))
-    plt.yticks(np.arange(0, mat.shape[0], 4))
+def mat_heatmap(mat, points=0, figsize=(8,6), ps=1):
+    fig, ax = plt.subplots(figsize=figsize)
+    cax = ax.imshow(mat, cmap='hot', interpolation='nearest', aspect='equal'
+                    )
+    fig.colorbar(cax)
+    ax.set_xticks(np.arange(0, mat.shape[1], 4))
+    ax.set_yticks(np.arange(0, mat.shape[0], 4))
     c, r = zip(*points) if points else ([], [])
-    if points: plt.scatter(r, c, s=1)
+    if points: ax.scatter(r, c, s=ps, alpha=0.5, marker='s')
     plt.show()
     
     
 def find_opt(sim_mat) -> tuple[float, list]:
     n, m = sim_mat.shape
     print(n, 'x', m)
+    PENALTY = 0.3
 
-    dp = np.ones((n, m)); visited = np.zeros((n, m))
-    path = [[[]]*m for _ in range(n)]; q = []
-    for i in range(n):
-        q.append((-sim_mat[i,0], i, 0, []))
-        dp[i,0] = -sim_mat[i,0]
-    for i in range(1, m):
-        q.append((-sim_mat[0,i], 0, i, []))
-        dp[0,i] = -sim_mat[0,i]
-    heapq.heapify(q)
-    
-    PENALTY = 1
-    while q:
-        acc, r, c, p = heapq.heappop(q)
-        if not visited[r, c]:
-            visited[r, c] = 1
-            path[r][c] = p+[(r, c)]
-        else: continue
+    def greedy(dr, dc):  # dr, dc는 index
+        grid = np.zeros((n, dc+1)); pos_to = np.zeros((n, dc+1))
+        cut_sim = sim_mat[:dr+1, :dc+1]
+        grid[-1, -1] = cut_sim[dr, dc]
+        pos_to[-1, -1] = 3
+        def get_val(r, c):
+            val_list = [grid[r, c+1] + cut_sim[r, c] - PENALTY
+                    , grid[r+1, c] + cut_sim[r, c] - PENALTY
+                    , grid[r+1, c+1] + cut_sim[r, c]]
+            grid[r, c] = np.max(val_list)
+            pos_to[r, c] = np.argmax(val_list)
         
-        for tr, tc, pen in [(r+1,c+1,0), (r,c+1,PENALTY), (r+1,c,PENALTY)]:
-            if tr >= n or tc >= m: continue
-            val = acc - sim_mat[tr, tc] + pen
-            if dp[tr, tc] > val:
-                heapq.heappush(q, (val, tr, tc, path[r][c]))
-                dp[tr, tc] = val
-            
-    dp *= -1
-    print(dp)
-    mc = np.argmax(dp[-1])
-    max_sum = dp[-1][mc]
-    max_path = path[-1][mc]
+        for i in range(2, max(n, dc+1)+1):
+            if i <= dc+1:  # 세로
+                grid[-1, -i] = grid[-1, -i+1] + cut_sim[-1, -i] - PENALTY
+                pos_to[-1, -i] = 0
+                for mr in range(2, min(i, dr+2)): get_val(-mr, -i)
+            if i <= n:  # 가로
+                grid[-i, -1] = grid[-i+1, -1] + cut_sim[-i, -1] - PENALTY
+                pos_to[-i, -1] = 1
+                for mc in range(2, min(i, dc+2)): get_val(-i, -mc)
+            if i <= n and i <= dc+1:
+                get_val(-i, -i)
+        
+        max_pos = np.argmax(np.concatenate([grid[0], grid[:,0]]))
+        max_pos = [0, max_pos] if max_pos < dc else [max_pos-dc, 0]
+        path = [(max_pos[0], max_pos[1])]
+        while True:
+            if pos_to[max_pos[0], max_pos[1]] == 3: break
+            future_pos = pos_to[max_pos[0], max_pos[1]]
+            if future_pos in (0,2): max_pos[1] += 1
+            if future_pos in (1,2): max_pos[0] += 1
+            path.append((max_pos[0], max_pos[1]))
+        #
+        return grid[path[0][0], path[0][1]], path, grid
+    
+    max_val = -1; path = []
+    for j in range(m):
+        cval, cpath, grid = greedy(n-1, j)
+        mat_heatmap(grid, cpath)
+        if cval > max_val:
+            max_val = cval; path = cpath
+        
+    return max_val, path
 
-    print("Maximum path sum:", max_sum)
-    print("Accuracy: ", max_sum / min(*sim_mat.shape))
-    print("Path:", max_path)
+    # print(dp)
+    # mc = np.argmax(dp[-1])
+    # max_sum = dp[-1][mc]
+    # max_path = path[-1][mc]
 
-    return max_sum, max_path
+    # print("Maximum path sum:", max_sum)
+    # print("Accuracy: ", max_sum / min(*sim_mat.shape))
+    # print("Path:", max_path)
+
+    # return max_sum, max_path, dp
