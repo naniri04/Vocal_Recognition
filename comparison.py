@@ -5,7 +5,7 @@ similarity_matrix -> find_opt
 from __future__ import annotations
 import numpy as np
 import matplotlib.pyplot as plt
-import heapq
+from tqdm import tqdm
 
 VOWEL = {'a', 'i', 'e', 'o', 'u', 'y'}
 EXC_CSN = {'ch', 'sh', 'ts'}
@@ -129,23 +129,28 @@ def mat_heatmap(mat, points=0, figsize=(8,6), ps=1):
     if points: ax.scatter(r, c, s=ps, alpha=0.5, marker='s')
     plt.show()
     
+import time
     
-def find_opt(sim_mat) -> tuple[float, list]:
+def find_opt(sim_mat) -> tuple[float, list, np.ndarray]:
     n, m = sim_mat.shape
     print(n, 'x', m)
-    PENALTY = 0.3
+    PENALTY = 0.6
 
     def greedy(dr, dc):  # dr, dc는 index
-        grid = np.zeros((n, dc+1)); pos_to = np.zeros((n, dc+1))
+        grid = np.zeros((n, dc+1)); pos_to = np.zeros((n, dc+1), dtype=np.int8)
         cut_sim = sim_mat[:dr+1, :dc+1]
         grid[-1, -1] = cut_sim[dr, dc]
         pos_to[-1, -1] = 3
+        
         def get_val(r, c):
             val_list = [grid[r, c+1] + cut_sim[r, c] - PENALTY
                     , grid[r+1, c] + cut_sim[r, c] - PENALTY
                     , grid[r+1, c+1] + cut_sim[r, c]]
-            grid[r, c] = np.max(val_list)
-            pos_to[r, c] = np.argmax(val_list)
+            if val_list[0] > val_list[1]:
+                pos_to[r, c] = 0 if val_list[0] > val_list[2] else 2
+            else:
+                pos_to[r, c] = 1 if val_list[1] > val_list[2] else 2
+            grid[r, c] = val_list[pos_to[r, c]]            
         
         for i in range(2, max(n, dc+1)+1):
             if i <= dc+1:  # 세로
@@ -160,7 +165,7 @@ def find_opt(sim_mat) -> tuple[float, list]:
                 get_val(-i, -i)
         
         max_pos = np.argmax(np.concatenate([grid[0], grid[:,0]]))
-        max_pos = [0, max_pos] if max_pos < dc else [max_pos-dc, 0]
+        max_pos = [0, max_pos] if max_pos < dc else [max_pos-dc-1, 0]
         path = [(max_pos[0], max_pos[1])]
         while True:
             if pos_to[max_pos[0], max_pos[1]] == 3: break
@@ -171,22 +176,12 @@ def find_opt(sim_mat) -> tuple[float, list]:
         #
         return grid[path[0][0], path[0][1]], path, grid
     
-    max_val = -1; path = []
-    for j in range(m):
-        cval, cpath, grid = greedy(n-1, j)
-        mat_heatmap(grid, cpath)
+    max_val = -1; path = []; grid = []
+    for j in tqdm(range(int(m*0.92), m)):
+        cval, cpath, cgrid = greedy(n-1, j)
+        # mat_heatmap(grid, cpath)
         if cval > max_val:
-            max_val = cval; path = cpath
+            max_val = cval; path = cpath; grid = cgrid
+    # max_val, path, grid = greedy(n-1, m-1)
         
-    return max_val, path
-
-    # print(dp)
-    # mc = np.argmax(dp[-1])
-    # max_sum = dp[-1][mc]
-    # max_path = path[-1][mc]
-
-    # print("Maximum path sum:", max_sum)
-    # print("Accuracy: ", max_sum / min(*sim_mat.shape))
-    # print("Path:", max_path)
-
-    # return max_sum, max_path, dp
+    return max_val, path, grid
